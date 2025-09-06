@@ -1,5 +1,9 @@
 # 🔄 Square Rotation Visualization
 
+<div align="center">
+  <img src="preview-image.png" alt="正方形の回転運動の可視化プレビュー" width="600">
+</div>
+
 **🌐 Web**: [https://tanakamikihisa.github.io/square_rotation_visualization/square_rotation_visualization.html](https://tanakamikihisa.github.io/square_rotation_visualization/square_rotation_visualization.html)
 
 正方形の回転運動を可視化するインタラクティブなWebアプリケーションです。
