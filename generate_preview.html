@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>プレビュー画像生成</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .preview-container {
+            text-align: center;
+            margin: 20px 0;
+        }
+        canvas {
+            border: 2px solid #dee2e6;
+            border-radius: 8px;
+            background-color: white;
+        }
+        .download-btn {
+            background-color: #4caf50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px;
+        }
+        .download-btn:hover {
+            background-color: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>プレビュー画像生成</h1>
+        <div class="preview-container">
+            <canvas id="previewCanvas" width="1200" height="630"></canvas>
+            <br>
+            <button class="download-btn" onclick="downloadImage()">画像をダウンロード</button>
+        </div>
+    </div>
+
+    <script>
+        class PreviewGenerator {
+            constructor() {
+                this.canvas = document.getElementById('previewCanvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.width = this.canvas.width;
+                this.height = this.canvas.height;
+                
+                // プレビュー用のパラメータ
+                this.r = 1.5;
+                this.l = 2.0;
+                this.theta = Math.PI / 4; // 45度
+                this.phi = Math.PI / 6;   // 30度
+                
+                this.generatePreview();
+            }
+            
+            // 座標変換: 数学座標系からCanvas座標系へ
+            toCanvasCoords(x, y) {
+                const centerX = this.width / 2;
+                const centerY = this.height / 2;
+                const scale = 200; // プレビュー用にスケールを大きく
+                return {
+                    x: centerX + x * scale,
+                    y: centerY - y * scale // Y軸を反転
+                };
+            }
+            
+            // 回転行列
+            rotate(x, y, angle) {
+                const cos = Math.cos(angle);
+                const sin = Math.sin(angle);
+                return {
+                    x: x * cos - y * sin,
+                    y: x * sin + y * cos
+                };
+            }
+            
+            // 点Iの位置を計算
+            getPointI() {
+                return this.rotate(this.l, 0, this.theta);
+            }
+            
+            // 軸αとβの方向ベクトルを計算
+            getAxes() {
+                const pointI = this.getPointI();
+                const axisAlpha = {
+                    x: pointI.x,
+                    y: pointI.y
+                };
+                
+                const axisBeta = this.rotate(axisAlpha.x, axisAlpha.y, Math.PI / 2);
+                
+                return { alpha: axisAlpha, beta: axisBeta };
+            }
+            
+            // 正方形の頂点を計算
+            getSquareVertices() {
+                const pointI = this.getPointI();
+                const axes = this.getAxes();
+                
+                const alphaLength = Math.sqrt(axes.alpha.x * axes.alpha.x + axes.alpha.y * axes.alpha.y);
+                const betaLength = Math.sqrt(axes.beta.x * axes.beta.x + axes.beta.y * axes.beta.y);
+                
+                const alphaUnit = {
+                    x: axes.alpha.x / alphaLength,
+                    y: axes.alpha.y / alphaLength
+                };
+                const betaUnit = {
+                    x: axes.beta.x / betaLength,
+                    y: axes.beta.y / betaLength
+                };
+                
+                const vertices = [
+                    { x: this.r, y: 0 },
+                    { x: 0, y: -this.r },
+                    { x: -this.r, y: 0 },
+                    { x: 0, y: this.r }
+                ];
+                
+                const rotatedVertices = vertices.map(v => this.rotate(v.x, v.y, this.phi));
+                
+                return rotatedVertices.map(v => ({
+                    x: pointI.x + v.x * alphaUnit.x + v.y * betaUnit.x,
+                    y: pointI.y + v.x * alphaUnit.y + v.y * betaUnit.y
+                }));
+            }
+            
+            generatePreview() {
+                // 背景をグラデーションで塗りつぶし
+                const gradient = this.ctx.createLinearGradient(0, 0, this.width, this.height);
+                gradient.addColorStop(0, '#f8f9fa');
+                gradient.addColorStop(1, '#e9ecef');
+                this.ctx.fillStyle = gradient;
+                this.ctx.fillRect(0, 0, this.width, this.height);
+                
+                // 座標軸を描画
+                this.drawAxes();
+                
+                // 原点O
+                const origin = this.toCanvasCoords(0, 0);
+                this.ctx.fillStyle = '#2196f3';
+                this.ctx.beginPath();
+                this.ctx.arc(origin.x, origin.y, 12, 0, 2 * Math.PI);
+                this.ctx.fill();
+                
+                // 点I
+                const pointI = this.getPointI();
+                const pointICanvas = this.toCanvasCoords(pointI.x, pointI.y);
+                this.ctx.fillStyle = '#f44336';
+                this.ctx.beginPath();
+                this.ctx.arc(pointICanvas.x, pointICanvas.y, 12, 0, 2 * Math.PI);
+                this.ctx.fill();
+                
+                // 軸αとβを描画
+                this.drawAxesLines(pointI);
+                
+                // 正方形を描画
+                this.drawSquare();
+                
+                // 軌跡を描画（複数の位置での正方形）
+                this.drawTrajectory();
+                
+                // 説明テキストを描画
+                this.ctx.fillStyle = '#333';
+                this.ctx.font = '20px Arial';
+                this.ctx.textAlign = 'left';
+                this.ctx.fillText('パラメータを調整して複雑な軌跡を描こう', 50, this.height - 100);
+                
+                // 開発者情報を描画
+                this.ctx.fillStyle = '#666';
+                this.ctx.font = '16px Arial';
+                this.ctx.textAlign = 'right';
+                this.ctx.fillText('開発者: @mathmeganekun', this.width - 50, this.height - 50);
+                
+                // タイトルを最前面に描画（半透明の背景付き）
+                this.ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
+                this.ctx.fillRect(0, 0, this.width, 150);
+                
+                this.ctx.fillStyle = '#333';
+                this.ctx.font = 'bold 48px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('正方形の回転運動の可視化', this.width / 2, 80);
+                
+                // サブタイトルを描画
+                this.ctx.fillStyle = '#666';
+                this.ctx.font = '24px Arial';
+                this.ctx.fillText('インタラクティブな数学アニメーション', this.width / 2, 120);
+            }
+            
+            drawAxes() {
+                // X軸
+                this.ctx.strokeStyle = '#333';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(50, this.height / 2);
+                this.ctx.lineTo(this.width - 50, this.height / 2);
+                this.ctx.stroke();
+                
+                // X軸の矢印
+                this.drawArrow(this.width - 80, this.height / 2, this.width - 30, this.height / 2, '#333');
+                
+                // Y軸
+                this.ctx.strokeStyle = '#333';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.width / 2, 50);
+                this.ctx.lineTo(this.width / 2, this.height - 50);
+                this.ctx.stroke();
+                
+                // Y軸の矢印
+                this.drawArrow(this.width / 2, 80, this.width / 2, 30, '#333');
+                
+                // 軸のラベル
+                this.ctx.fillStyle = '#333';
+                this.ctx.font = '28px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.fillText('x', this.width - 20, this.height / 2 - 20);
+                this.ctx.fillText('y', this.width / 2 + 20, 40);
+                this.ctx.fillText('O', this.width / 2 + 10, this.height / 2 - 10);
+            }
+            
+            drawAxesLines(pointI) {
+                const axes = this.getAxes();
+                const pointICanvas = this.toCanvasCoords(pointI.x, pointI.y);
+                
+                const axisBetaLength = 0.8;
+                const betaEnd = this.toCanvasCoords(
+                    pointI.x + axes.beta.x * axisBetaLength,
+                    pointI.y + axes.beta.y * axisBetaLength
+                );
+                
+                const axisAlphaLength = axisBetaLength;
+                const alphaEnd = this.toCanvasCoords(
+                    pointI.x + axes.alpha.x * axisAlphaLength,
+                    pointI.y + axes.alpha.y * axisAlphaLength
+                );
+                
+                // 軸αを描画
+                this.ctx.strokeStyle = '#2196f3';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(this.width / 2, this.height / 2);
+                this.ctx.lineTo(alphaEnd.x, alphaEnd.y);
+                this.ctx.stroke();
+                
+                this.drawArrow(this.width / 2, this.height / 2, alphaEnd.x, alphaEnd.y, '#2196f3');
+                
+                // 軸βを描画
+                this.ctx.strokeStyle = '#f44336';
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(pointICanvas.x, pointICanvas.y);
+                this.ctx.lineTo(betaEnd.x, betaEnd.y);
+                this.ctx.stroke();
+                
+                this.drawArrow(pointICanvas.x, pointICanvas.y, betaEnd.x, betaEnd.y, '#f44336');
+                
+                // 軸のラベル
+                this.ctx.fillStyle = '#2196f3';
+                this.ctx.font = '24px Arial';
+                this.ctx.fillText('α', alphaEnd.x + 10, alphaEnd.y - 10);
+                
+                this.ctx.fillStyle = '#f44336';
+                this.ctx.fillText('β', betaEnd.x + 10, betaEnd.y - 10);
+            }
+            
+            drawArrow(fromX, fromY, toX, toY, color) {
+                const headLength = 30;
+                const headAngle = Math.PI / 6;
+                
+                const dx = toX - fromX;
+                const dy = toY - fromY;
+                const angle = Math.atan2(dy, dx);
+                
+                const arrowX1 = toX - headLength * Math.cos(angle - headAngle);
+                const arrowY1 = toY - headLength * Math.sin(angle - headAngle);
+                const arrowX2 = toX - headLength * Math.cos(angle + headAngle);
+                const arrowY2 = toY - headLength * Math.sin(angle + headAngle);
+                
+                this.ctx.strokeStyle = color;
+                this.ctx.lineWidth = 4;
+                this.ctx.beginPath();
+                this.ctx.moveTo(toX, toY);
+                this.ctx.lineTo(arrowX1, arrowY1);
+                this.ctx.moveTo(toX, toY);
+                this.ctx.lineTo(arrowX2, arrowY2);
+                this.ctx.stroke();
+            }
+            
+            drawSquare() {
+                const vertices = this.getSquareVertices();
+                const canvasVertices = vertices.map(v => this.toCanvasCoords(v.x, v.y));
+                
+                // 正方形を描画（黒色に変更）
+                this.ctx.strokeStyle = '#000000';
+                this.ctx.lineWidth = 6;
+                this.ctx.beginPath();
+                this.ctx.moveTo(canvasVertices[0].x, canvasVertices[0].y);
+                for (let i = 1; i < canvasVertices.length; i++) {
+                    this.ctx.lineTo(canvasVertices[i].x, canvasVertices[i].y);
+                }
+                this.ctx.closePath();
+                this.ctx.stroke();
+                
+                // 頂点を描画（黒色に変更）
+                const labels = ['P', 'Q', 'R', 'S'];
+                canvasVertices.forEach((vertex, index) => {
+                    this.ctx.fillStyle = '#000000';
+                    this.ctx.beginPath();
+                    this.ctx.arc(vertex.x, vertex.y, 8, 0, 2 * Math.PI);
+                    this.ctx.fill();
+                    
+                    this.ctx.fillStyle = '#000';
+                    this.ctx.font = '20px Arial';
+                    this.ctx.fillText(labels[index], vertex.x + 15, vertex.y + 8);
+                });
+            }
+            
+            drawTrajectory() {
+                // 複数の位置での正方形を描画して軌跡を表現
+                const steps = 8;
+                for (let i = 0; i < steps; i++) {
+                    const t = (i / steps) * Math.PI * 2;
+                    const tempTheta = this.theta + t * 0.1;
+                    const tempPhi = this.phi + t * 0.2;
+                    
+                    const pointI = this.rotate(this.l, 0, tempTheta);
+                    const axes = this.getAxes();
+                    
+                    const alphaLength = Math.sqrt(axes.alpha.x * axes.alpha.x + axes.alpha.y * axes.alpha.y);
+                    const betaLength = Math.sqrt(axes.beta.x * axes.beta.x + axes.beta.y * axes.beta.y);
+                    
+                    const alphaUnit = {
+                        x: axes.alpha.x / alphaLength,
+                        y: axes.alpha.y / alphaLength
+                    };
+                    const betaUnit = {
+                        x: axes.beta.x / betaLength,
+                        y: axes.beta.y / betaLength
+                    };
+                    
+                    const vertices = [
+                        { x: this.r, y: 0 },
+                        { x: 0, y: -this.r },
+                        { x: -this.r, y: 0 },
+                        { x: 0, y: this.r }
+                    ];
+                    
+                    const rotatedVertices = vertices.map(v => this.rotate(v.x, v.y, tempPhi));
+                    const finalVertices = rotatedVertices.map(v => ({
+                        x: pointI.x + v.x * alphaUnit.x + v.y * betaUnit.x,
+                        y: pointI.y + v.x * alphaUnit.y + v.y * betaUnit.y
+                    }));
+                    
+                    const canvasVertices = finalVertices.map(v => this.toCanvasCoords(v.x, v.y));
+                    
+                    // 軌跡の正方形を薄く描画（黒色に変更）
+                    this.ctx.strokeStyle = `rgba(0, 0, 0, ${0.3 - i * 0.03})`;
+                    this.ctx.lineWidth = 3;
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(canvasVertices[0].x, canvasVertices[0].y);
+                    for (let j = 1; j < canvasVertices.length; j++) {
+                        this.ctx.lineTo(canvasVertices[j].x, canvasVertices[j].y);
+                    }
+                    this.ctx.closePath();
+                    this.ctx.stroke();
+                }
+            }
+        }
+        
+        function downloadImage() {
+            const canvas = document.getElementById('previewCanvas');
+            const link = document.createElement('a');
+            link.download = 'preview-image.png';
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+        
+        // ページ読み込み時に初期化
+        window.addEventListener('load', () => {
+            new PreviewGenerator();
+        });
+    </script>
+</body>
+</html>
